@@ -1,0 +1,7 @@
+{
+  "name": "ImagineAI - Генератор Изображений",
+  "description": "Создавайте потрясающие HD изображения с помощью текста или голоса, используя мощь Gemini AI.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
