@@ -8,14 +8,22 @@ import { AspectRatio } from "../types";
  * @returns Base64 image string.
  */
 export const generateImageFromPrompt = async (prompt: string, aspectRatio: AspectRatio = '16:9'): Promise<string> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) {
+    throw new Error("API Key is missing. Please configure it in your environment.");
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
+
+  // Enhance prompt for better quality
+  const enhancedPrompt = `${prompt}, high quality, HD, 4k, highly detailed, photorealistic`;
 
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
       contents: {
         parts: [
-          { text: prompt },
+          { text: enhancedPrompt },
         ],
       },
       config: {
