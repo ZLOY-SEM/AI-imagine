@@ -11,7 +11,12 @@ const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
  */
 export const generateImageFromPrompt = async (prompt: string, aspectRatio: AspectRatio = '16:9'): Promise<string> => {
   const apiKey = process.env.API_KEY;
-  if (!apiKey) {
+  
+  // Debug log to check if the new key is actually loaded
+  if (apiKey) {
+    console.log(`[DEBUG] Using API Key starting with: ${apiKey.substring(0, 10)}...`);
+  } else {
+    console.error("[DEBUG] API Key is missing in process.env");
     throw new Error("API Key is missing. Please configure it in your environment.");
   }
 
@@ -58,10 +63,16 @@ export const generateImageFromPrompt = async (prompt: string, aspectRatio: Aspec
       console.warn(`Attempt ${attempt + 1} failed:`, error);
       lastError = error;
 
+      // Check specifically for API Key errors - DO NOT RETRY these
+      const msg = error.message || JSON.stringify(error);
+      if (msg.includes('API_KEY_INVALID') || msg.includes('INVALID_ARGUMENT')) {
+        break; // Stop retrying if key is bad
+      }
+
       // Check for Quota/Rate Limit errors
       const isRateLimit = 
-        error.message?.includes('429') || 
-        error.message?.includes('RESOURCE_EXHAUSTED') || 
+        msg.includes('429') || 
+        msg.includes('RESOURCE_EXHAUSTED') || 
         error.status === 429;
 
       if (isRateLimit && attempt < maxRetries - 1) {
@@ -84,23 +95,34 @@ export const generateImageFromPrompt = async (prompt: string, aspectRatio: Aspec
   
   if (lastError) {
     const msg = lastError.message || JSON.stringify(lastError);
-    if (msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED') || msg.includes('quota')) {
-      userMessage = "Достигнут лимит запросов (Quota Exceeded). Попробуйте подождать минуту или используйте другой API ключ.";
-    } else if (msg.includes('API Key is missing')) {
-      userMessage = "Отсутствует API ключ.";
+    
+    if (msg.includes('API_KEY_INVALID') || msg.includes('key not valid')) {
+      userMessage = "Ошибка API ключа: Ключ недействителен или удален. Проверьте настройки Vercel и сделайте Redeploy.";
+    } else if (msg.includes('PERMISSION_DENIED')) {
+      userMessage = "Ошибка доступа: У этого API ключа нет доступа к модели gemini-2.5-flash-image.";
+    } else if (msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED') || msg.includes('quota')) {
+      userMessage = "Достигнут лимит запросов (Quota Exceeded). Лимит бесплатных запросов исчерпан.";
+    } else if (msg.includes('SAFETY') || msg.includes('blocked')) {
+      userMessage = "Изображение заблокировано фильтрами безопасности. Попробуйте другой запрос.";
     } else {
-      // Try to extract a clean message if it's JSON
+      // Try to extract a clean message if it's JSON from Google
       try {
-        // Sometimes the error message is a stringified JSON object
-        const match = msg.match(/{.*}/);
-        if (match) {
-           // Don't show raw JSON to user, show generic error + log
-           userMessage = "Ошибка сервиса генерации. Попробуйте изменить запрос.";
+        // Look for typical Google Error structure in the string
+        // Often comes as "[400 Bad Request] ... { "error": ... }"
+        const jsonStart = msg.indexOf('{');
+        const jsonEnd = msg.lastIndexOf('}');
+        if (jsonStart !== -1 && jsonEnd !== -1) {
+           const jsonStr = msg.substring(jsonStart, jsonEnd + 1);
+           const parsed = JSON.parse(jsonStr);
+           if (parsed.error && parsed.error.message) {
+             userMessage = `Ошибка API: ${parsed.error.message}`;
+           }
         } else {
-           userMessage = msg;
+          // If message is short enough, show it, otherwise generic
+          if (msg.length < 200) userMessage = `Ошибка: ${msg}`;
         }
       } catch (e) {
-        userMessage = msg;
+        // Fallback
       }
     }
   }
